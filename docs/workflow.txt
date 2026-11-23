@@ -1,0 +1,54 @@
+PROJECT WORKFLOW (plain text for terminals)
+===========================================
+
+  Start: uv run --frozen mcp-demo
+                |
+                v
+  Connect to three local MCP servers:
+  Research (papers) | Fetch (web pages) | File System (data/ only)
+                |
+                v
+         Enter a command
+                |
+                +-- Normal question -----> AI model flow below
+                |
+                +-- @folders / @<topic> -> Read saved research
+                |                         -> Show result -> Enter next command
+                |
+                +-- /prompts ------------> List prompt names
+                |                         -> Enter next command
+                |
+                +-- /prompt ... ---------> Get prepared prompt
+                |                         -> AI model flow below
+                |
+                +-- quit ----------------> Close connections and exit
+
+
+  AI MODEL FLOW (Ollama by default, or Anthropic)
+  -----------------------------------------------
+
+        Ask the AI model
+                |
+                v
+        Need a tool?
+         /        \
+       yes         no
+        |           |
+        v           v
+  Call the right  Show answer
+  MCP server tool      |
+        |              v
+        v         Enter next command
+  Return tool result
+  to the AI model
+        |
+        +----> Ask the AI model again (repeat as needed)
+
+
+Research can search arXiv and save paper details in data/papers/.
+Fetch retrieves web pages. File System accesses project data/ only.
+The @ commands read Research resources directly, without the AI.
+
+View this file:
+  PowerShell: Get-Content docs/workflow.txt
+  Git Bash:   cat docs/workflow.txt

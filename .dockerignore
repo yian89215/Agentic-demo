@@ -1,0 +1,8 @@
+.env
+.venv
+__pycache__
+.git
+.DS_Store
+.cache
+data/papers
+examples

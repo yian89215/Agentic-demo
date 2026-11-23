@@ -1,0 +1,17 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.DS_Store
+__MACOSX/
+
+# Research Server 執行後產生的論文資料（保留 .gitkeep）
+data/papers/*/
+
+# 本機工具快取（含舊版散落在根目錄的資料夾）
+.cache/
+.uv-*/
+.npm-cache/

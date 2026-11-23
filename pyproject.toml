@@ -1,0 +1,23 @@
+[project]
+name = "mcp-project"
+version = "0.1.0"
+description = "DeepLearning.AI MCP 課程範例的本機整合專案"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "anthropic>=0.50.0",
+    "arxiv>=2.2.0",
+    "mcp>=1.7.1,<2",
+    "nest-asyncio>=1.6.0",
+    "python-dotenv>=1.1.0",
+]
+
+[project.scripts]
+mcp-demo = "mcp_demo.client.mcp_chatbot:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mcp_demo"]
