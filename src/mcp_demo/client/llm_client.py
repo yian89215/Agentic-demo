@@ -100,6 +100,44 @@ class LLMClient:
             )
         return SimpleNamespace(content=content)
 
+    def create_text(self, system: str, prompt: str, max_tokens: int = 3072) -> str:
+        """Generate one plain-text response for a deterministic writing stage."""
+        if self.provider == "anthropic":
+            response = self.client.messages.create(
+                model=self.model,
+                max_tokens=max_tokens,
+                system=system,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            return "\n".join(block.text for block in response.content if block.type == "text")
+
+        payload = {
+            "model": self.model,
+            "stream": False,
+            "think": False,
+            "options": {"num_ctx": int(os.getenv("OLLAMA_NUM_CTX", "16384")),
+                        "num_predict": max_tokens},
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt},
+            ],
+        }
+        request = Request(
+            f"{self.base_url}/api/chat",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            with urlopen(request, timeout=300) as response:
+                return json.load(response)["message"]["content"]
+        except HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"Ollama HTTP {exc.code}: {detail}") from exc
+        except URLError as exc:
+            raise RuntimeError(
+                f"Cannot reach Ollama at {self.base_url}; start the Ollama app."
+            ) from exc
+
     def _ollama_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         converted: list[dict[str, Any]] = []
         for message in messages:

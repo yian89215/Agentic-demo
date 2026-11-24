@@ -1,9 +1,10 @@
-"""課程 Research Server：保留 tools、resources 與 prompt template。"""
+"""Course Research Server with tools, resources, and a prompt template."""
 
 from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import List
 
@@ -17,12 +18,17 @@ mcp = FastMCP("research")
 
 
 def _topic_directory(topic: str) -> Path:
-    return PAPER_DIR / topic.lower().replace(" ", "_")
+    slug = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "_", topic.lower().replace(" ", "_"))
+    slug = slug.strip(" ._")[:100] or "topic"
+    if slug.upper() in {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)),
+                        *(f"LPT{i}" for i in range(1, 10))}:
+        slug = f"topic_{slug}"
+    return PAPER_DIR / slug
 
 
 @mcp.tool()
 def search_papers(topic: str, max_results: int = 5) -> List[str]:
-    """依主題搜尋 arXiv，並把論文資訊儲存在專案資料目錄。"""
+    """Search arXiv by topic and save paper metadata in the project data directory."""
     client = arxiv.Client()
     search = arxiv.Search(
         query=topic,
@@ -59,7 +65,7 @@ def search_papers(topic: str, max_results: int = 5) -> List[str]:
 
 @mcp.tool()
 def extract_info(paper_id: str) -> str:
-    """在所有已儲存主題中尋找指定 paper ID。"""
+    """Find a paper ID among all saved topics."""
     if not PAPER_DIR.exists():
         return f"There's no saved information related to paper {paper_id}."
     for item_path in PAPER_DIR.iterdir():
@@ -78,7 +84,7 @@ def extract_info(paper_id: str) -> str:
 
 @mcp.resource("papers://folders")
 def get_available_folders() -> str:
-    """列出已有 papers_info.json 的研究主題。"""
+    """List research topics containing a papers_info.json file."""
     folders = []
     if PAPER_DIR.exists():
         folders = sorted(
@@ -95,7 +101,7 @@ def get_available_folders() -> str:
 
 @mcp.resource("papers://{topic}")
 def get_topic_papers(topic: str) -> str:
-    """取得指定研究主題的已儲存論文資訊。"""
+    """Get saved paper information for a research topic."""
     papers_file = _topic_directory(topic) / "papers_info.json"
     if not papers_file.exists():
         return f"# No papers found for topic: {topic}\n\nTry searching for papers on this topic first."
@@ -119,7 +125,7 @@ def get_topic_papers(topic: str) -> str:
 
 @mcp.prompt()
 def generate_search_prompt(topic: str, num_papers: int = 5) -> str:
-    """產生使用 Research tools 搜尋及整理論文的 Claude prompt。"""
+    """Generate a prompt for searching and organizing papers with Research tools."""
     return f"""Search for {num_papers} academic papers about '{topic}' using the search_papers tool.
 
 Follow these instructions:

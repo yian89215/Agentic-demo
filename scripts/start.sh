@@ -4,13 +4,16 @@ set -euo pipefail
 project_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$project_dir"
 
-# 工具快取集中在 .cache/，避免專案根目錄散落多個隱藏資料夾（可用同名環境變數覆寫）。
+# Keep tool caches in .cache/; the corresponding environment variables can override these paths.
 export UV_CACHE_DIR="${UV_CACHE_DIR:-$project_dir/.cache/uv}"
 export npm_config_cache="${npm_config_cache:-$project_dir/.cache/npm}"
 
 # This Windows workspace has a local uv installation.
 if [[ -x "$project_dir/.uv-bootstrap/bin/uv.exe" ]]; then
     export PATH="$project_dir/.uv-bootstrap/bin:$PATH"
+fi
+if [[ -x "$project_dir/.cache/uv-tool/bin/uv.exe" ]]; then
+    export PATH="$project_dir/.cache/uv-tool/bin:$PATH"
 fi
 
 if ! command -v uv >/dev/null 2>&1 || ! command -v uvx >/dev/null 2>&1; then
@@ -48,4 +51,8 @@ if command -v curl >/dev/null 2>&1 && ! curl -fsS --max-time 2 http://127.0.0.1:
 fi
 
 uv sync --frozen
+if [[ "${1:-}" == "--web" ]]; then
+    shift
+    exec uv run --frozen mcp-demo-web "$@"
+fi
 exec uv run --frozen mcp-demo "$@"

@@ -13,3 +13,18 @@ services:
     tty: true
     volumes:
       - ./data:/app/data
+  mcp-web:
+    build:
+      context: .
+    command: ["uv", "run", "--frozen", "mcp-demo-web", "--host", "0.0.0.0"]
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3.5:4b}
+      OLLAMA_NUM_CTX: ${OLLAMA_NUM_CTX:-16384}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-3-7-sonnet-20250219}
+    volumes:
+      - ./data:/app/data

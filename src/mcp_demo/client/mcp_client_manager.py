@@ -1,10 +1,11 @@
-"""管理多個 MCP Server 的 stdio 連線與能力索引。"""
+"""Manage stdio connections and capability indexes for multiple MCP servers."""
 
 from __future__ import annotations
 
 import json
 import os
 import re
+import sys
 from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import Any
@@ -14,7 +15,7 @@ from mcp.client.stdio import stdio_client
 
 
 class MCPClientManager:
-    """依設定檔連線 MCP Server，並彙整 tools、resources 與 prompts。"""
+    """Connect to configured MCP servers and index their capabilities."""
 
     def __init__(self, config_path: str | Path) -> None:
         self.config_path = Path(config_path).resolve()
@@ -25,32 +26,34 @@ class MCPClientManager:
         self.available_resources: list[dict[str, Any]] = []
         self.available_resource_templates: list[dict[str, Any]] = []
         self._tool_sessions: dict[str, ClientSession] = {}
+        self.tool_servers: dict[str, str] = {}
         self._prompt_sessions: dict[str, ClientSession] = {}
         self._resource_sessions: dict[str, ClientSession] = {}
         self._resource_template_sessions: dict[str, ClientSession] = {}
 
     def load_config(self) -> dict[str, dict[str, Any]]:
-        """讀取設定並展開專案路徑；不會啟動任何程序。"""
+        """Load configuration and expand project paths without starting processes."""
         with self.config_path.open(encoding="utf-8") as file:
             data = json.load(file)
 
         servers = data.get("mcpServers")
         if not isinstance(servers, dict) or not servers:
-            raise ValueError("設定檔必須包含非空的 mcpServers 物件。")
+            raise ValueError("Configuration must contain a nonempty mcpServers object.")
 
         expanded: dict[str, dict[str, Any]] = {}
         for name, server in servers.items():
             if not isinstance(server, dict):
-                raise ValueError(f"Server '{name}' 的設定必須是物件。")
+                raise ValueError(f"Server '{name}' configuration must be an object.")
             if not isinstance(server.get("command"), str):
-                raise ValueError(f"Server '{name}' 缺少 command。")
+                raise ValueError(f"Server '{name}' is missing a command.")
             args = server.get("args", [])
             if not isinstance(args, list) or not all(isinstance(arg, str) for arg in args):
-                raise ValueError(f"Server '{name}' 的 args 必須是字串陣列。")
+                raise ValueError(f"Server '{name}' args must be an array of strings.")
 
             values = {
                 "PROJECT_ROOT": str(self.project_root),
                 "PAPERS_DIR": str(self.project_root / "data" / "papers"),
+                "PYTHON": sys.executable,
             }
             command = self._expand(server["command"], values)
             expanded_args = [self._expand(arg, values) for arg in args]
@@ -74,7 +77,7 @@ class MCPClientManager:
         return value
 
     def _validate_filesystem_scope(self, servers: dict[str, dict[str, Any]]) -> None:
-        """阻止 File System Server 被設定到 data 以外的路徑。"""
+        """Restrict the File System server to the project data directory."""
         filesystem = servers.get("filesystem")
         if not filesystem or not filesystem["args"]:
             return
@@ -82,7 +85,7 @@ class MCPClientManager:
         configured_root = Path(filesystem["args"][-1]).resolve()
         if not configured_root.is_relative_to(allowed_root):
             raise ValueError(
-                "filesystem Server 僅能存取專案 data 目錄或其子目錄："
+                "filesystem Server may access only the project data directory or its subdirectories: "
                 f"{configured_root}"
             )
 
@@ -99,16 +102,17 @@ class MCPClientManager:
         await self._index_tools(server_name, session)
         await self._index_prompts(server_name, session)
         await self._index_resources(server_name, session)
-        print(f"已連線 MCP Server：{server_name}")
+        print(f"Connected to MCP Server: {server_name}")
 
     async def _index_tools(self, server_name: str, session: ClientSession) -> None:
         try:
             response = await session.list_tools()
         except Exception as exc:
-            print(f"警告：{server_name} 無法列出 tools：{exc}")
+            print(f"Warning: {server_name} could not list tools: {exc}")
             return
         for tool in response.tools:
             self._register_unique(self._tool_sessions, tool.name, session, "tool")
+            self.tool_servers[tool.name] = server_name
             self.available_tools.append(
                 {
                     "name": tool.name,
@@ -121,7 +125,7 @@ class MCPClientManager:
         try:
             response = await session.list_prompts()
         except Exception as exc:
-            print(f"警告：{server_name} 無法列出 prompts：{exc}")
+            print(f"Warning: {server_name} could not list prompts: {exc}")
             return
         for prompt in response.prompts:
             self._register_unique(self._prompt_sessions, prompt.name, session, "prompt")
@@ -147,7 +151,7 @@ class MCPClientManager:
                     }
                 )
         except Exception as exc:
-            print(f"警告：{server_name} 無法列出 resources：{exc}")
+            print(f"Warning: {server_name} could not list resources: {exc}")
 
         try:
             response = await session.list_resource_templates()
@@ -167,7 +171,7 @@ class MCPClientManager:
                     }
                 )
         except Exception as exc:
-            print(f"警告：{server_name} 無法列出 resource templates：{exc}")
+            print(f"Warning: {server_name} could not list resource templates: {exc}")
 
     @staticmethod
     def _register_unique(
@@ -177,13 +181,13 @@ class MCPClientManager:
         capability: str,
     ) -> None:
         if name in registry:
-            raise ValueError(f"不同 Server 提供重複的 {capability} 名稱：{name}")
+            raise ValueError(f"Duplicate {capability} name across servers: {name}")
         registry[name] = session
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
         session = self._tool_sessions.get(name)
         if session is None:
-            raise KeyError(f"找不到 tool：{name}")
+            raise KeyError(f"Tool not found: {name}")
         return await session.call_tool(name, arguments=arguments)
 
     async def read_resource(self, uri: str) -> Any:
@@ -194,13 +198,13 @@ class MCPClientManager:
                     session = candidate
                     break
         if session is None:
-            raise KeyError(f"找不到 resource：{uri}")
+            raise KeyError(f"Resource not found: {uri}")
         return await session.read_resource(uri=uri)
 
     async def get_prompt(self, name: str, arguments: dict[str, str]) -> Any:
         session = self._prompt_sessions.get(name)
         if session is None:
-            raise KeyError(f"找不到 prompt：{name}")
+            raise KeyError(f"Prompt not found: {name}")
         return await session.get_prompt(name, arguments=arguments)
 
     @staticmethod

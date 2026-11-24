@@ -6,7 +6,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# File System reference server 由課程使用的 npx 啟動；uv/uvx 管理 Python 與 Fetch server。
+# The course File System server uses npx; uv/uvx manage Python and the Fetch server.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends nodejs npm \
     && rm -rf /var/lib/apt/lists/* \

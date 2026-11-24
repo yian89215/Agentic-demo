@@ -9,13 +9,8 @@
       ]
     },
     "research": {
-      "command": "uv",
+      "command": "${PYTHON}",
       "args": [
-        "run",
-        "--project",
-        "${PROJECT_ROOT}",
-        "--frozen",
-        "python",
         "${PROJECT_ROOT}/src/mcp_demo/servers/research_server.py"
       ],
       "env": {

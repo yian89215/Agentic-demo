@@ -1,4 +1,4 @@
-"""課程 MCP chatbot 的本機互動入口。"""
+"""Local interactive entry point for the course MCP chatbot."""
 
 from __future__ import annotations
 
@@ -7,6 +7,8 @@ import asyncio
 import shlex
 from pathlib import Path
 from typing import Any
+from collections.abc import Callable
+from time import perf_counter
 
 from dotenv import load_dotenv
 
@@ -23,20 +25,63 @@ class MCPChatbot:
         self.manager = MCPClientManager(config_path)
         self.llm = LLMClient()
 
-    async def process_query(self, query: str) -> None:
+    async def process_query(
+        self,
+        query: str,
+        emit: Callable[[str, str, Any, Any, float | None, str | None], None] | None = None,
+        print_output: bool = True,
+    ) -> str:
         messages: list[dict[str, Any]] = [{"role": "user", "content": query}]
 
         while True:
-            response = self.llm.create_message(messages, self.manager.available_tools)
+            answer_parts: list[str] = []
+            llm_input = {"messages": messages, "tools": self.manager.available_tools}
+            if emit:
+                emit("llm", "start", llm_input, None, None, None)
+            started = perf_counter()
+            try:
+                response = await asyncio.to_thread(
+                    self.llm.create_message, messages, self.manager.available_tools
+                )
+            except Exception as exc:
+                if emit:
+                    emit("llm", "error", llm_input, str(exc), perf_counter() - started, None)
+                raise
+            llm_output = []
+            for block in response.content:
+                if block.type == "text":
+                    llm_output.append({"type": "text", "text": block.text})
+                elif block.type == "tool_use":
+                    llm_output.append({"type": "tool_use", "id": block.id,
+                                       "name": block.name, "input": block.input})
+                else:
+                    llm_output.append({"type": block.type, "value": str(block)})
+            if emit:
+                emit("llm", "complete", llm_input, llm_output, perf_counter() - started, None)
             has_tool_use = False
             tool_results: list[dict[str, Any]] = []
 
             for block in response.content:
                 if block.type == "text":
-                    print(block.text)
+                    if print_output:
+                        print(block.text)
+                    answer_parts.append(block.text)
                 elif block.type == "tool_use":
                     has_tool_use = True
-                    result = await self.manager.call_tool(block.name, block.input)
+                    server = self.manager.tool_servers.get(block.name, "unknown")
+                    tool_input = {"tool": block.name, "arguments": block.input}
+                    if emit:
+                        emit(server, "start", tool_input, None, None, block.id)
+                    started = perf_counter()
+                    try:
+                        result = await self.manager.call_tool(block.name, block.input)
+                    except Exception as exc:
+                        if emit:
+                            emit(server, "error", tool_input, str(exc), perf_counter() - started, block.id)
+                        raise
+                    if emit:
+                        emit(server, "error" if getattr(result, "isError", False) else "complete",
+                             tool_input, result, perf_counter() - started, block.id)
                     tool_results.append(
                         {
                             "type": "tool_result",
@@ -46,7 +91,10 @@ class MCPChatbot:
                     )
 
             if not has_tool_use:
-                return
+                answer = "\n".join(answer_parts)
+                if emit:
+                    emit("answer", "complete", llm_output, answer, 0.0, None)
+                return answer
 
             messages.append({"role": "assistant", "content": response.content})
             messages.append({"role": "user", "content": tool_results})
@@ -60,7 +108,7 @@ class MCPChatbot:
 
     def list_prompts(self) -> None:
         if not self.manager.available_prompts:
-            print("目前沒有可用的 prompts。")
+            print("No prompts are available.")
             return
         print("\nAvailable prompts:")
         for prompt in self.manager.available_prompts:
@@ -85,9 +133,9 @@ class MCPChatbot:
         await self.process_query("\n".join(parts))
 
     async def chat_loop(self) -> None:
-        print("\nMCP Chatbot 已啟動；輸入 quit 結束。")
-        print("@folders / @<topic> 讀取 Research resources")
-        print("/prompts 列出 prompts；/prompt <name> key=value 執行 prompt")
+        print("\nMCP Chatbot is ready; enter quit to exit.")
+        print("@folders / @<topic> reads Research resources")
+        print("/prompts lists prompts; /prompt <name> key=value runs a prompt")
 
         while True:
             query = (await asyncio.to_thread(input, "\nQuery: ")).strip()
@@ -105,7 +153,7 @@ class MCPChatbot:
                 else:
                     await self.process_query(query)
             except Exception as exc:
-                print(f"錯誤：{exc}")
+                print(f"Error: {exc}")
 
     async def handle_command(self, query: str) -> None:
         parts = shlex.split(query)
@@ -113,7 +161,7 @@ class MCPChatbot:
             self.list_prompts()
             return
         if parts[0].lower() != "/prompt" or len(parts) < 2:
-            print("用法：/prompt <name> <arg1=value1> <arg2=value2>")
+            print("Usage: /prompt <name> <arg1=value1> <arg2=value2>")
             return
         arguments = dict(part.split("=", 1) for part in parts[2:] if "=" in part)
         await self.execute_prompt(parts[1], arguments)
@@ -132,7 +180,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--check-config",
         action="store_true",
-        help="只驗證並顯示設定，不啟動 Server 或呼叫模型 API。",
+        help="Validate and display configuration without starting servers or calling the model API.",
     )
     return parser.parse_args()
 
@@ -143,7 +191,7 @@ def main() -> None:
     manager = MCPClientManager(args.config)
     if args.check_config:
         servers = manager.load_config()
-        print("MCP 設定可讀：" + ", ".join(servers))
+        print("MCP configuration is valid: " + ", ".join(servers))
         return
     asyncio.run(MCPChatbot(args.config).run())
 
